@@ -1,0 +1,98 @@
+<!-- templates/index.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Consumption Prediction</title>
+    <!-- Bootstrap CSS for styling -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .container { max-width: 800px; }
+        .card { border: none; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="card p-4">
+            <h1 class="text-center mb-4">Energy Consumption Prediction</h1>
+            
+            <!-- Input Form -->
+            <form action="{{ url_for('predict') }}" method="post">
+                <div class="row">
+                    <!-- NEW: Model Selection Dropdown -->
+                    <div class="col-md-6 mb-3">
+                        <label for="model_choice" class="form-label"><b>Select Model</b></label>
+                        <select class="form-select" name="model_choice" required>
+                            <option value="" disabled selected>-- Choose a model --</option>
+                            {% for model_name in model_names %}
+                                <option value="{{ model_name }}" {% if model_name == selected_model %}selected{% endif %}>
+                                    {{ model_name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label for="datetime" class="form-label"><b>Date and Time</b></label>
+                        <input type="datetime-local" class="form-control" name="datetime" required>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label for="Voltage" class="form-label">Voltage</label>
+                        <input type="number" step="any" class="form-control" name="Voltage" placeholder="e.g., 240.5" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="Global_intensity" class="form-label">Global Intensity</label>
+                        <input type="number" step="any" class="form-control" name="Global_intensity" placeholder="e.g., 5.4" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="Global_reactive_power" class="form-label">Global Reactive Power</label>
+                        <input type="number" step="any" class="form-control" name="Global_reactive_power" placeholder="e.g., 0.25" required>
+                    </div>
+                    
+                    <!-- Sub-metering Section -->
+                    <div class="col-md-6 mb-3">
+                        <div class="row">
+                            <div class="col-4">
+                                <label for="Sub_metering_1" class="form-label">Sub Meter 1</label>
+                                <input type="number" step="any" class="form-control" name="Sub_metering_1" placeholder="0.0" required>
+                            </div>
+                            <div class="col-4">
+                                <label for="Sub_metering_2" class="form-label">Sub Meter 2</label>
+                                <input type="number" step="any" class="form-control" name="Sub_metering_2" placeholder="1.0" required>
+                            </div>
+                            <div class="col-4">
+                                <label for="Sub_metering_3" class="form-label">Sub Meter 3</label>
+                                <input type="number" step="any" class="form-control" name="Sub_metering_3" placeholder="17.0" required>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-grid mt-3">
+                    <button type="submit" class="btn btn-primary btn-lg">Predict</button>
+                </div>
+            </form>
+
+            <!-- Display Prediction or Error -->
+            {% if prediction_text %}
+            <div class="alert alert-success text-center mt-4" role="alert">
+                <h4>{{ prediction_text }}</h4>
+            </div>
+            {% endif %}
+
+            {% if error %}
+            <div class="alert alert-danger text-center mt-4" role="alert">
+                <p><strong>Error:</strong> {{ error }}</p>
+            </div>
+            {% endif %}
+        </div>
+        <footer class="text-center text-muted mt-4">
+            <p>Models available: {{ model_names|join(', ') }}</p>
+        </footer>
+    </div>
+</body>
+</html>

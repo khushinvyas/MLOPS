@@ -1,0 +1,61 @@
+name: DVC CI Pipeline
+
+# --- When to run the workflow ---
+on:
+  push:
+    branches:
+      - master # Runs on every push to the master branch
+  pull_request:
+    branches:
+      - master # Also runs on pull requests targeting the master branch
+
+# --- What jobs to run ---
+jobs:
+  run-dvc-pipeline:
+    runs-on: ubuntu-latest # Use a standard Linux environment provided by GitHub
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up the Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8' # Match the version you use locally
+
+      # Step 3: Install all Python dependencies (including DVC with S3 support)
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install 'dvc[s3]'
+
+      # Step 4: Configure AWS Credentials
+      # This step securely uses secrets you will set up in GitHub
+      # to allow DVC to access your S3 bucket.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-north-1 # IMPORTANT: Use the same region as your bucket
+
+      # Step 5: Pull data and models from DVC remote storage (S3)
+      # This brings the large files into the runner's workspace.
+      - name: Pull DVC data
+        run: dvc pull
+
+      # Step 6: Reproduce the DVC pipeline
+      - name: Reproduce DVC pipeline
+        run: dvc repro
+
+      # Step 7 (Optional but Recommended): Check for any changes
+      - name: Check for DVC changes
+        run: |
+          dvc status
+          # Fail if `dvc status` shows any changes
+          if ! git diff --quiet dvc.lock; then
+            echo "DVC outputs have changed. Please run 'dvc repro' locally and commit 'dvc.lock'."
+            exit 1
+          fi

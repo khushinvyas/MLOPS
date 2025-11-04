@@ -1,0 +1,66 @@
+# dvc.yaml
+
+stages:
+  preprocess:
+    cmd: python src/preprocess.py
+    deps:
+      - data/raw/household_power_consumption.txt
+      - src/preprocess.py
+      - src/utils.py
+    params:
+      - preprocess
+      - train.features
+    outs:
+      - data/processed
+
+  train:
+    foreach: ${models}
+    do:
+      cmd: python src/train.py --model-name "${key}"
+      deps:
+        - data/processed
+        - src/train.py
+        - src/utils.py
+      params:
+        - models.${key}
+      outs:
+        - models/${item.file_name}
+
+  evaluate:
+    # --- This is the key change ---
+    # We no longer loop. This is now a single stage that evaluates all models.
+    cmd: |
+      python src/evaluate.py --model-name "XGBoostRegressor"
+      python src/evaluate.py --model-name "RandomForestRegressor"
+      python src/evaluate.py --model-name "LightGBMRegressor"
+    deps:
+      # It now depends on the entire 'models' directory.
+      # If ANY model is retrained, this entire stage will re-run.
+      - models
+      - data/processed
+      - src/evaluate.py
+      - src/utils.py
+    params:
+      - validation
+      - models
+    # We list all the metrics and plots this stage produces.
+    metrics:
+      - metrics/XGBoostRegressor_metrics.json:
+          cache: false
+      - metrics/RandomForestRegressor_metrics.json:
+          cache: false
+      - metrics/LightGBMRegressor_metrics.json:
+          cache: false
+    plots:
+      - metrics/validation_plots/XGBoostRegressor_residuals_over_time.png:
+          cache: false
+      - metrics/validation_plots/XGBoostRegressor_residuals_histogram.png:
+          cache: false
+      - metrics/validation_plots/RandomForestRegressor_residuals_over_time.png:
+          cache: false
+      - metrics/validation_plots/RandomForestRegressor_residuals_histogram.png:
+          cache: false
+      - metrics/validation_plots/LightGBMRegressor_residuals_over_time.png:
+          cache: false
+      - metrics/validation_plots/LightGBMRegressor_residuals_histogram.png:
+          cache: false
