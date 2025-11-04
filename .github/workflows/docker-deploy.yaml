@@ -1,0 +1,126 @@
+name: Docker Build and Deploy
+
+# --- When to run the workflow ---
+on:
+  push:
+    branches:
+      - master # Deploy on every push to master
+    paths:
+      # Only trigger on code changes, not on data/model changes
+      - 'app.py'
+      - 'src/**'
+      - 'templates/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - '.dockerignore'
+
+# --- What jobs to run ---
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Docker Buildx (for better build support)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 3: Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 4: Extract metadata (tags, labels) for Docker
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/energy-app
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Step 5: Build and push Docker image
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/energy-app:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/energy-app:buildcache,mode=max
+
+      # Step 6: Configure AWS credentials for SSM
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Step 7: Deploy to EC2 via SSM
+      - name: Deploy to EC2
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          EC2_INSTANCE_ID: ${{ secrets.AWS_EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          echo "Deploying to EC2 instance: $EC2_INSTANCE_ID"
+          
+          # Send deployment command to EC2 via SSM
+          # Using inline JSON array for commands
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "{\"commands\":[\"set -e\",\"docker pull ${DOCKER_USER}/energy-app:latest || true\",\"docker stop energy-app || true\",\"docker rm energy-app || true\",\"docker volume create energy_models || true\",\"docker run -d --name energy-app -p 5000:5000 --restart unless-stopped -v energy_models:/app/models -e MODEL_S3_BUCKET=khushin -e XGB_MODEL_KEY=mlops-final/models/xgb_model.pkl -e RF_MODEL_KEY=mlops-final/models/rf_model.pkl -e LGBM_MODEL_KEY=mlops-final/models/lgbm_model.pkl ${DOCKER_USER}/energy-app:latest\",\"docker image prune -f || true\",\"echo 'Deployment completed successfully!'\"]}" \
+            --region "$AWS_REGION" \
+            --output text \
+            --query "Command.CommandId")
+          
+          echo "Command ID: $COMMAND_ID"
+          
+          # Wait for command to complete (max 5 minutes)
+          echo "Waiting for deployment to complete..."
+          for i in {1..30}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query "Status" \
+              --output text)
+            
+            if [ "$STATUS" = "Success" ]; then
+              echo "✅ Deployment successful!"
+              echo "Output:"
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$EC2_INSTANCE_ID" \
+                --region "$AWS_REGION" \
+                --query "StandardOutputContent" \
+                --output text
+              exit 0
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "❌ Deployment failed with status: $STATUS"
+              echo "Error output:"
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$EC2_INSTANCE_ID" \
+                --region "$AWS_REGION" \
+                --query "StandardErrorContent" \
+                --output text
+              exit 1
+            fi
+            
+            echo "Status: $STATUS, waiting 10 seconds... ($i/30)"
+            sleep 10
+          done
+          
+          echo "❌ Deployment timed out after 5 minutes"
+          exit 1
+

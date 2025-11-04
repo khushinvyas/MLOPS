@@ -1,0 +1,16 @@
+.dvc/
+.git/
+.github/
+__pycache__/
+.venv/
+venv/
+data/
+models/
+*.ipynb_checkpoints/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.DS_Store
+
